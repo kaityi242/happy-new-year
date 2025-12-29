@@ -1,147 +1,363 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>给谢伊菲的新年惊喜</title>
-    <style>
-        body {
-            margin: 0;
-            background: #000;
-            overflow: hidden;
-            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        }
-
-        /* 祝福语样式 */
-        .content {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            color: #fff;
-            z-index: 10;
-            pointer-events: none; /* 让点击穿透文字，触发烟花 */
-        }
-
-        h1 {
-            font-size: 2.5rem;
-            margin: 0;
-            background: linear-gradient(to right, #ff9a9e, #fad0c4, #ffecd2);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 20px rgba(255,154,158,0.5);
-        }
-
-        p {
-            font-size: 1rem;
-            color: rgba(255, 255, 255, 0.6);
-            letter-spacing: 2px;
-            margin-top: 15px;
-        }
-
-        canvas {
-            display: block;
-        }
-    </style>
+<meta charset="UTF-8">
+<title>✨绚烂烟花 - 致谢伊菲✨</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<style>
+    body {
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+        touch-action: none; /* 防止双击缩放 */
+    }
+    canvas {
+        display: block;
+        cursor: crosshair;
+    }
+    /* 提示文字样式 */
+    .hint {
+        position: absolute;
+        bottom: 15%;
+        width: 100%;
+        text-align: center;
+        color: rgba(255, 255, 255, 0.5);
+        font-family: 'Microsoft YaHei', sans-serif;
+        font-size: 14px;
+        pointer-events: none;
+        animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 0.7; }
+    }
+</style>
 </head>
 <body>
 
-    <div class="content">
-        <h1>谢伊菲，新年快乐</h1>
-        <p>✨ 点击屏幕 · 燃放属于你的烟花 ✨</p>
-    </div>
+<div class="hint">轻触屏幕，点亮夜空</div>
+<canvas id="canvas"></canvas>
 
-    <canvas id="canvas"></canvas>
+<script>
+// ---------------------------------------------------------
+// 配置参数 - 可以尝试修改这里的数字来调整效果
+// ---------------------------------------------------------
+const CONFIG = {
+    // 文字烟花的文字内容
+    text: "谢伊菲\n新年快乐",
+    // 文字烟花触发的概率 (0-1)，数字越小出现的频率越低
+    textFireworkChance: 0.15,
+    // 普通烟花粒子数量
+    particleCount: 150,
+    // 文字烟花粒子数量 (越多字越清晰，但性能要求越高)
+    textParticleCount: 1200,
+    // 粒子颜色库 (金色、粉色、紫色、银色系)
+    colors: [
+        '#FFD700', '#FFC0CB', '#DC143C', '#9400D3', 
+        '#FF69B4', '#BA55D3', '#E6E6FA', '#FFFFFF',
+        '#FF4500', '#FF1493'
+    ],
+    // 重力加速度
+    gravity: 0.05,
+    // 空气阻力
+    friction: 0.96
+};
 
-    <script>
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
+// ---------------------------------------------------------
+// 核心代码逻辑
+// ---------------------------------------------------------
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let canvasWidth, canvasHeight;
+let fireworks = [];
+let particles = [];
+// 用于创建文字的离屏 Canvas
+let textCanvas = document.createElement('canvas');
+let textCtx = textCanvas.getContext('2d');
+let textPixels = [];
 
-        let width, height, fireworks = [], particles = [];
+// 初始化画布尺寸
+function initCanvas() {
+    canvasWidth = canvas.width = window.innerWidth;
+    canvasHeight = canvas.height = window.innerHeight;
+    // 预处理文字
+    initTextPixels();
+}
 
-        function init() {
-            width = canvas.width = window.innerWidth;
-            height = canvas.height = window.innerHeight;
+// 预处理文字像素点
+function initTextPixels() {
+    textCanvas.width = canvasWidth;
+    textCanvas.height = canvasHeight;
+    textCtx.fillStyle = '#FFFFFF';
+    textCtx.font = 'bold 8vw "Microsoft YaHei", sans-serif'; // 字体大小随屏幕宽度变化
+    textCtx.textAlign = 'center';
+    textCtx.textBaseline = 'middle';
+
+    const lines = CONFIG.text.split('\n');
+    const lineHeight = canvasHeight * 0.12; // 行高
+    const startY = (canvasHeight - (lines.length - 1) * lineHeight) / 2;
+
+    lines.forEach((line, index) => {
+        textCtx.fillText(line, canvasWidth / 2, startY + index * lineHeight);
+    });
+    
+    // 获取像素数据
+    const imageData = textCtx.getImageData(0, 0, canvasWidth, canvasHeight);
+    const data = imageData.data;
+    textPixels = [];
+    // 采样间隔，数字越大采样点越少，性能越好但字越稀疏
+    const gap = 6; 
+
+    for (let y = 0; y < canvasHeight; y += gap) {
+        for (let x = 0; x < canvasWidth; x += gap) {
+            // 判断像素点是否不透明（即是否有文字）
+            if (data[((y * canvasWidth + x) * 4) + 3] > 128) {
+                textPixels.push({x, y});
+            }
         }
+    }
+}
 
-        window.addEventListener('resize', init);
-        init();
+window.addEventListener('resize', initCanvas);
+initCanvas();
 
-        class Particle {
-            constructor(x, y, color) {
-                this.x = x;
-                this.y = y;
-                this.color = color;
-                this.velocity = {
-                    x: (Math.random() - 0.5) * 8,
-                    y: (Math.random() - 0.5) * 8
-                };
-                this.alpha = 1;
-                this.friction = 0.95;
-                this.gravity = 0.2;
+// 辅助函数：生成随机颜色
+function getRandomColor() {
+    return CONFIG.colors[Math.floor(Math.random() * CONFIG.colors.length)];
+}
+
+// 辅助函数：生成范围内随机数
+function random(min, max) {
+    return Math.random() * (max - min) + min;
+}
+
+// =========================================================
+// 粒子类 (Particle)
+// =========================================================
+class Particle {
+    constructor(x, y, color, targetX = null, targetY = null) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        this.alpha = 1;
+        // 如果有目标点，则是文字粒子
+        this.targetX = targetX;
+        this.targetY = targetY;
+        this.isTextParticle = targetX !== null;
+
+        if (this.isTextParticle) {
+            // 文字粒子：向目标点飞行
+            const angle = Math.atan2(targetY - y, targetX - x);
+            const speed = random(8, 15); // 飞行速度
+            this.vx = Math.cos(angle) * speed;
+            this.vy = Math.sin(angle) * speed;
+            this.friction = 0.92; // 接近目标时减速更快
+            this.decay = random(0.005, 0.01); // 衰减慢，让字多显示一会
+            this.size = random(1, 2);
+        } else {
+            // 普通粒子：向四周爆炸
+            const angle = random(0, Math.PI * 2);
+            const speed = random(2, 12); // 爆炸力度
+            this.vx = Math.cos(angle) * speed;
+            this.vy = Math.sin(angle) * speed;
+            this.friction = CONFIG.friction;
+            this.decay = random(0.01, 0.02); // 正常衰减
+            this.size = random(1, 3);
+        }
+        
+        // 用于闪烁效果
+        this.flashSpeed = random(0.1, 0.5);
+        this.flashState = 0;
+    }
+
+    draw() {
+        ctx.save();
+        ctx.globalAlpha = this.alpha;
+        // 闪烁计算
+        this.flashState += this.flashSpeed;
+        const flash = Math.abs(Math.sin(this.flashState)) * 0.5 + 0.5;
+        ctx.globalAlpha *= flash;
+
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+        
+        // 添加光晕效果
+        ctx.shadowBlur = 10 * flash;
+        ctx.shadowColor = this.color;
+        ctx.fill();
+        
+        ctx.restore();
+    }
+
+    update(index) {
+        if (this.isTextParticle) {
+            // 文字粒子逻辑
+            const dx = this.targetX - this.x;
+            const dy = this.targetY - this.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            // 接近目标点时大幅减速并停止应用重力
+            if (dist < 10) {
+                this.vx *= 0.5;
+                this.vy *= 0.5;
+            } else {
+                this.vx *= this.friction;
+                this.vy *= this.friction;
+                 // 只有没到位时才受重力影响(可选，加上会更动感但字容易散)
+                // this.vy += CONFIG.gravity * 0.2; 
             }
 
-            draw() {
-                ctx.save();
-                ctx.globalAlpha = this.alpha;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
-                ctx.fillStyle = this.color;
-                ctx.fill();
-                ctx.restore();
-            }
-
-            update() {
-                this.velocity.x *= this.friction;
-                this.velocity.y *= this.friction;
-                this.velocity.y += this.gravity;
-                this.x += this.velocity.x;
-                this.y += this.velocity.y;
-                this.alpha -= 0.01;
-            }
+        } else {
+            // 普通粒子逻辑
+            this.vx *= this.friction;
+            this.vy *= this.friction;
+            this.vy += CONFIG.gravity;
         }
 
-        function createFirework(x, y) {
-            const colors = ['#ff5252', '#ff4081', '#e040fb', '#7c4dff', '#536dfe', '#448aff', '#40c4ff', '#18ffff', '#64ffda', '#69f0ae', '#b2ff59', '#eeff41', '#ffff00', '#ffd740', '#ffab40', '#ff6e40'];
-            const color = colors[Math.floor(Math.random() * colors.length)];
-            for (let i = 0; i < 40; i++) {
-                particles.push(new Particle(x, y, color));
-            }
+        this.x += this.vx;
+        this.y += this.vy;
+        this.alpha -= this.decay;
+
+        if (this.alpha <= this.decay) {
+            particles.splice(index, 1);
         }
+    }
+}
 
-        // 监听点击/触摸事件
-        window.addEventListener('mousedown', (e) => {
-            createFirework(e.clientX, e.clientY);
-        });
-
-        window.addEventListener('touchstart', (e) => {
-            createFirework(e.touches[0].clientX, e.touches[0].clientY);
-        });
-
-        // 自动燃放
-        setInterval(() => {
-            createFirework(Math.random() * width, Math.random() * height * 0.7);
-        }, 1500);
-
-        function animate() {
-            // 形成拖尾效果
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-            ctx.fillRect(0, 0, width, height);
-
-            particles.forEach((particle, index) => {
-                if (particle.alpha > 0) {
-                    particle.update();
-                    particle.draw();
-                } else {
-                    particles.splice(index, 1);
-                }
-            });
-
-            requestAnimationFrame(animate);
+// =========================================================
+// 烟花类 (Firework) - 负责从底部发射到天空的过程
+// =========================================================
+class Firework {
+    constructor(startX, startY, targetX, targetY, isText = false) {
+        this.x = startX;
+        this.y = startY;
+        this.startX = startX;
+        this.startY = startY;
+        this.targetX = targetX;
+        this.targetY = targetY;
+        this.isText = isText;
+        this.distanceToTarget = Math.sqrt(Math.pow(targetX - startX, 2) + Math.pow(targetY - startY, 2));
+        this.distanceTraveled = 0;
+        this.coordinates = [];
+        this.coordinateCount = 3; // 拖尾长度
+        while(this.coordinateCount--) {
+            this.coordinates.push([this.x, this.y]);
         }
+        const angle = Math.atan2(targetY - startY, targetX - startX);
+        this.speed = 2;
+        this.acceleration = 1.05;
+        this.brightness = random(50, 70);
+        // 文字烟花用金色，普通用随机色
+        this.color = isText ? '#FFD700' : getRandomColor(); 
+    }
 
-        animate();
-    </script>
+    draw() {
+        ctx.beginPath();
+        ctx.moveTo(this.coordinates[this.coordinates.length - 1][0], this.coordinates[this.coordinates.length - 1][1]);
+        ctx.lineTo(this.x, this.y);
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    update(index) {
+        this.coordinates.pop();
+        this.coordinates.unshift([this.x, this.y]);
+
+        this.speed *= this.acceleration;
+        const vx = Math.cos(Math.atan2(this.targetY - this.startY, this.targetX - this.startX)) * this.speed;
+        const vy = Math.sin(Math.atan2(this.targetY - this.startY, this.targetX - this.startX)) * this.speed;
+        this.distanceTraveled = Math.sqrt(Math.pow(this.x + vx - this.startX, 2) + Math.pow(this.y + vy - this.startY, 2));
+
+        if (this.distanceTraveled >= this.distanceToTarget) {
+            // 到达目标点，爆炸
+            createParticles(this.targetX, this.targetY, this.isText);
+            fireworks.splice(index, 1);
+        } else {
+            this.x += vx;
+            this.y += vy;
+        }
+    }
+}
+
+// 创建爆炸粒子
+function createParticles(x, y, isText) {
+    let count = isText ? CONFIG.textParticleCount : CONFIG.particleCount;
+    
+    if (isText && textPixels.length > 0) {
+        // 随机选取文字像素点作为目标
+        for (let i = 0; i < count; i++) {
+            const targetIndex = Math.floor(random(0, textPixels.length));
+            const target = textPixels[targetIndex];
+            // 文字粒子使用单一颜色(如金色)效果更好
+            particles.push(new Particle(x, y, '#FFD700', target.x, target.y));
+        }
+    } else {
+        // 普通爆炸
+        const color = getRandomColor();
+        for (let i = 0; i < count; i++) {
+            particles.push(new Particle(x, y, color));
+        }
+    }
+}
+
+
+// ---------------------------------------------------------
+// 动画主循环
+// ---------------------------------------------------------
+function loop() {
+    requestAnimationFrame(loop);
+
+    // 制造拖尾效果：用半透明黑色覆盖上一帧
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'; // 透明度越低拖尾越长
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    // 切换回正常绘制模式
+    ctx.globalCompositeOperation = 'lighter';
+
+    let i = fireworks.length;
+    while(i--) {
+        fireworks[i].draw();
+        fireworks[i].update(i);
+    }
+
+    let j = particles.length;
+    while(j--) {
+        particles[j].draw();
+        particles[j].update(j);
+    }
+}
+
+// ---------------------------------------------------------
+// 事件监听
+// ---------------------------------------------------------
+function handleInteraction(e) {
+    e.preventDefault(); // 防止移动端默认的滚动和缩放
+    const clientX = e.clientX || e.touches[0].clientX;
+    const clientY = e.clientY || e.touches[0].clientY;
+
+    // 随机决定是发射普通烟花还是文字烟花
+    const isText = Math.random() < CONFIG.textFireworkChance;
+    // 发射点在底部中心附近随机
+    const startX = canvasWidth / 2 + random(-100, 100);
+    const startY = canvasHeight;
+    
+    fireworks.push(new Firework(startX, startY, clientX, clientY, isText));
+}
+
+canvas.addEventListener('mousedown', handleInteraction);
+canvas.addEventListener('touchstart', handleInteraction, { passive: false });
+
+// 启动动画
+loop();
+
+// 自动来一发开场烟花
+setTimeout(() => {
+     fireworks.push(new Firework(canvasWidth / 2, canvasHeight, canvasWidth / 2, canvasHeight * 0.3, true));
+}, 1000);
+
+</script>
 </body>
 </html>
