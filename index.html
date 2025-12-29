@@ -2,362 +2,222 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>✨绚烂烟花 - 致谢伊菲✨</title>
+<title>✨致谢伊菲 - 璀璨星河✨</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <style>
-    body {
-        margin: 0;
-        overflow: hidden;
-        background: #000;
-        touch-action: none; /* 防止双击缩放 */
-    }
-    canvas {
-        display: block;
-        cursor: crosshair;
-    }
-    /* 提示文字样式 */
+    body { margin: 0; overflow: hidden; background: #020205; touch-action: none; }
+    canvas { display: block; }
     .hint {
-        position: absolute;
-        bottom: 15%;
-        width: 100%;
-        text-align: center;
-        color: rgba(255, 255, 255, 0.5);
-        font-family: 'Microsoft YaHei', sans-serif;
-        font-size: 14px;
-        pointer-events: none;
-        animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-        0%, 100% { opacity: 0.3; }
-        50% { opacity: 0.7; }
+        position: absolute; bottom: 8%; width: 100%; text-align: center;
+        color: rgba(255, 255, 255, 0.3); font-family: sans-serif; font-size: 14px;
+        pointer-events: none; letter-spacing: 2px;
     }
 </style>
 </head>
 <body>
-
-<div class="hint">轻触屏幕，点亮夜空</div>
+<div class="hint">轻触屏幕 · 点亮为你而汇聚的星光</div>
 <canvas id="canvas"></canvas>
 
 <script>
-// ---------------------------------------------------------
-// 配置参数 - 可以尝试修改这里的数字来调整效果
-// ---------------------------------------------------------
+const canvas = document.getElementById('canvas');
+// 使用 lighter 模式会让粒子叠加变亮，制造发光感
+const ctx = canvas.getContext('2d', { alpha: false });
+
+let cw, ch;
+let fireworks = [];
+let particles = [];
+let textPixels = [];
+
+// --- 核心配置 ---
 const CONFIG = {
-    // 文字烟花的文字内容
     text: "谢伊菲\n新年快乐",
-    // 文字烟花触发的概率 (0-1)，数字越小出现的频率越低
-    textFireworkChance: 0.15,
-    // 普通烟花粒子数量
-    particleCount: 150,
-    // 文字烟花粒子数量 (越多字越清晰，但性能要求越高)
-    textParticleCount: 1200,
-    // 粒子颜色库 (金色、粉色、紫色、银色系)
-    colors: [
-        '#FFD700', '#FFC0CB', '#DC143C', '#9400D3', 
-        '#FF69B4', '#BA55D3', '#E6E6FA', '#FFFFFF',
-        '#FF4500', '#FF1493'
-    ],
-    // 重力加速度
-    gravity: 0.05,
-    // 空气阻力
+    particleBaseCount: 300,   // 每次爆炸的基础粒子数
+    textPixelGap: 7,          // 文字像素采样间距 (越小字越密，但越卡)
+    gravity: 0.04,
     friction: 0.96
 };
 
-// ---------------------------------------------------------
-// 核心代码逻辑
-// ---------------------------------------------------------
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-let canvasWidth, canvasHeight;
-let fireworks = [];
-let particles = [];
-// 用于创建文字的离屏 Canvas
-let textCanvas = document.createElement('canvas');
-let textCtx = textCanvas.getContext('2d');
-let textPixels = [];
-
-// 初始化画布尺寸
-function initCanvas() {
-    canvasWidth = canvas.width = window.innerWidth;
-    canvasHeight = canvas.height = window.innerHeight;
-    // 预处理文字
-    initTextPixels();
+function init() {
+    cw = canvas.width = window.innerWidth;
+    ch = canvas.height = window.innerHeight;
+    prepareText();
 }
 
-// 预处理文字像素点
-function initTextPixels() {
-    textCanvas.width = canvasWidth;
-    textCanvas.height = canvasHeight;
-    textCtx.fillStyle = '#FFFFFF';
-    textCtx.font = 'bold 8vw "Microsoft YaHei", sans-serif'; // 字体大小随屏幕宽度变化
-    textCtx.textAlign = 'center';
-    textCtx.textBaseline = 'middle';
-
-    const lines = CONFIG.text.split('\n');
-    const lineHeight = canvasHeight * 0.12; // 行高
-    const startY = (canvasHeight - (lines.length - 1) * lineHeight) / 2;
-
-    lines.forEach((line, index) => {
-        textCtx.fillText(line, canvasWidth / 2, startY + index * lineHeight);
-    });
+// 1. 预处理：把文字变成坐标点
+function prepareText() {
+    const tCanvas = document.createElement('canvas');
+    const tCtx = tCanvas.getContext('2d');
+    tCanvas.width = cw;
+    tCanvas.height = ch;
     
-    // 获取像素数据
-    const imageData = textCtx.getImageData(0, 0, canvasWidth, canvasHeight);
-    const data = imageData.data;
-    textPixels = [];
-    // 采样间隔，数字越大采样点越少，性能越好但字越稀疏
-    const gap = 6; 
+    tCtx.fillStyle = "#fff";
+    // 根据屏幕宽度动态调整字体大小
+    tCtx.font = `bold ${cw * 0.16}px sans-serif`;
+    tCtx.textAlign = "center";
+    tCtx.textBaseline = "middle";
+    
+    const lines = CONFIG.text.split('\n');
+    const lineHeight = cw * 0.18;
+    const startY = (ch - (lines.length - 1) * lineHeight) / 2;
+    lines.forEach((line, i) => {
+        tCtx.fillText(line, cw/2, startY + i * lineHeight);
+    });
 
-    for (let y = 0; y < canvasHeight; y += gap) {
-        for (let x = 0; x < canvasWidth; x += gap) {
-            // 判断像素点是否不透明（即是否有文字）
-            if (data[((y * canvasWidth + x) * 4) + 3] > 128) {
+    const data = tCtx.getImageData(0, 0, cw, ch).data;
+    textPixels = [];
+    for (let y = 0; y < ch; y += CONFIG.textPixelGap) {
+        for (let x = 0; x < cw; x += CONFIG.textPixelGap) {
+            // 透明度 > 128 认为是文字部分
+            if (data[((y * cw + x) * 4) + 3] > 128) {
                 textPixels.push({x, y});
             }
         }
     }
+    // 打乱像素点顺序，让汇聚过程更自然
+    textPixels.sort(() => Math.random() - 0.5);
 }
 
-window.addEventListener('resize', initCanvas);
-initCanvas();
-
-// 辅助函数：生成随机颜色
-function getRandomColor() {
-    return CONFIG.colors[Math.floor(Math.random() * CONFIG.colors.length)];
-}
-
-// 辅助函数：生成范围内随机数
-function random(min, max) {
-    return Math.random() * (max - min) + min;
-}
-
-// =========================================================
-// 粒子类 (Particle)
-// =========================================================
+// 2. 粒子类：核心动画逻辑
 class Particle {
-    constructor(x, y, color, targetX = null, targetY = null) {
-        this.x = x;
-        this.y = y;
-        this.color = color;
+    constructor(x, y, hue, targetIdx = null) {
+        this.x = x; this.y = y;
+        this.hue = hue;
         this.alpha = 1;
-        // 如果有目标点，则是文字粒子
-        this.targetX = targetX;
-        this.targetY = targetY;
-        this.isTextParticle = targetX !== null;
-
-        if (this.isTextParticle) {
-            // 文字粒子：向目标点飞行
-            const angle = Math.atan2(targetY - y, targetX - x);
-            const speed = random(8, 15); // 飞行速度
-            this.vx = Math.cos(angle) * speed;
-            this.vy = Math.sin(angle) * speed;
-            this.friction = 0.92; // 接近目标时减速更快
-            this.decay = random(0.005, 0.01); // 衰减慢，让字多显示一会
-            this.size = random(1, 2);
-        } else {
-            // 普通粒子：向四周爆炸
-            const angle = random(0, Math.PI * 2);
-            const speed = random(2, 12); // 爆炸力度
-            this.vx = Math.cos(angle) * speed;
-            this.vy = Math.sin(angle) * speed;
-            this.friction = CONFIG.friction;
-            this.decay = random(0.01, 0.02); // 正常衰减
-            this.size = random(1, 3);
-        }
+        // 如果 targetIdx 不是 null，这个粒子就会飞向文字
+        this.target = targetIdx !== null ? textPixels[targetIdx] : null;
         
-        // 用于闪烁效果
-        this.flashSpeed = random(0.1, 0.5);
-        this.flashState = 0;
+        const angle = Math.random() * Math.PI * 2;
+        // 爆炸初始速度
+        const speed = Math.random() * 10 + 2;
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+        
+        // 文字粒子衰减慢，普通粒子衰减快
+        this.decay = this.target ? random(0.005, 0.01) : random(0.015, 0.03);
+        // 粒子大小差异化
+        this.size = this.target ? random(1.5, 3) : random(1, 2);
     }
 
-    draw() {
-        ctx.save();
-        ctx.globalAlpha = this.alpha;
-        // 闪烁计算
-        this.flashState += this.flashSpeed;
-        const flash = Math.abs(Math.sin(this.flashState)) * 0.5 + 0.5;
-        ctx.globalAlpha *= flash;
-
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-        ctx.fillStyle = this.color;
-        ctx.fill();
-        
-        // 添加光晕效果
-        ctx.shadowBlur = 10 * flash;
-        ctx.shadowColor = this.color;
-        ctx.fill();
-        
-        ctx.restore();
-    }
-
-    update(index) {
-        if (this.isTextParticle) {
-            // 文字粒子逻辑
-            const dx = this.targetX - this.x;
-            const dy = this.targetY - this.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-
-            // 接近目标点时大幅减速并停止应用重力
-            if (dist < 10) {
-                this.vx *= 0.5;
-                this.vy *= 0.5;
-            } else {
-                this.vx *= this.friction;
-                this.vy *= this.friction;
-                 // 只有没到位时才受重力影响(可选，加上会更动感但字容易散)
-                // this.vy += CONFIG.gravity * 0.2; 
-            }
-
+    update() {
+        if (this.target) {
+            // 【核心算法】粒子汇聚逻辑
+            const dx = this.target.x - this.x;
+            const dy = this.target.y - this.y;
+            // 给予一个向目标点的加速度 (引力)
+            this.vx += dx * 0.005;
+            this.vy += dy * 0.005;
+            // 施加较强阻力，防止粒子飞过头并稳定在字形上
+            this.vx *= 0.92;
+            this.vy *= 0.92;
         } else {
-            // 普通粒子逻辑
-            this.vx *= this.friction;
-            this.vy *= this.friction;
+            // 普通粒子逻辑：受重力和阻力影响
+            this.vx *= CONFIG.friction;
+            this.vy *= CONFIG.friction;
             this.vy += CONFIG.gravity;
         }
-
+        
         this.x += this.vx;
         this.y += this.vy;
         this.alpha -= this.decay;
-
-        if (this.alpha <= this.decay) {
-            particles.splice(index, 1);
-        }
-    }
-}
-
-// =========================================================
-// 烟花类 (Firework) - 负责从底部发射到天空的过程
-// =========================================================
-class Firework {
-    constructor(startX, startY, targetX, targetY, isText = false) {
-        this.x = startX;
-        this.y = startY;
-        this.startX = startX;
-        this.startY = startY;
-        this.targetX = targetX;
-        this.targetY = targetY;
-        this.isText = isText;
-        this.distanceToTarget = Math.sqrt(Math.pow(targetX - startX, 2) + Math.pow(targetY - startY, 2));
-        this.distanceTraveled = 0;
-        this.coordinates = [];
-        this.coordinateCount = 3; // 拖尾长度
-        while(this.coordinateCount--) {
-            this.coordinates.push([this.x, this.y]);
-        }
-        const angle = Math.atan2(targetY - startY, targetX - startX);
-        this.speed = 2;
-        this.acceleration = 1.05;
-        this.brightness = random(50, 70);
-        // 文字烟花用金色，普通用随机色
-        this.color = isText ? '#FFD700' : getRandomColor(); 
     }
 
     draw() {
-        ctx.beginPath();
-        ctx.moveTo(this.coordinates[this.coordinates.length - 1][0], this.coordinates[this.coordinates.length - 1][1]);
-        ctx.lineTo(this.x, this.y);
-        ctx.strokeStyle = this.color;
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        // 使用 HSLA 颜色模式，色彩更绚丽
+        ctx.fillStyle = `hsla(${this.hue}, 100%, 60%, ${this.alpha})`;
+        // 用小矩形代替圆，提升性能
+        ctx.fillRect(this.x, this.y, this.size, this.size);
+    }
+}
+
+// 3. 烟花类：发射阶段
+class Firework {
+    constructor(sx, sy, tx, ty) {
+        this.x = sx; this.y = sy;
+        this.tx = tx; this.ty = ty;
+        this.speed = random(10, 14);
+        // 随机色相，营造多彩效果
+        this.hue = random(0, 360);
+        this.done = false;
     }
 
-    update(index) {
-        this.coordinates.pop();
-        this.coordinates.unshift([this.x, this.y]);
-
-        this.speed *= this.acceleration;
-        const vx = Math.cos(Math.atan2(this.targetY - this.startY, this.targetX - this.startX)) * this.speed;
-        const vy = Math.sin(Math.atan2(this.targetY - this.startY, this.targetX - this.startX)) * this.speed;
-        this.distanceTraveled = Math.sqrt(Math.pow(this.x + vx - this.startX, 2) + Math.pow(this.y + vy - this.startY, 2));
-
-        if (this.distanceTraveled >= this.distanceToTarget) {
-            // 到达目标点，爆炸
-            createParticles(this.targetX, this.targetY, this.isText);
-            fireworks.splice(index, 1);
+    update() {
+        const dx = this.tx - this.x;
+        const dy = this.ty - this.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < this.speed) {
+            this.explode();
+            this.done = true;
         } else {
-            this.x += vx;
-            this.y += vy;
+            this.x += (dx/dist) * this.speed;
+            this.y += (dy/dist) * this.speed;
+            this.speed *= 0.98; // 接近顶点时减速
+        }
+    }
+
+    draw() {
+        ctx.fillStyle = `hsla(${this.hue}, 100%, 70%, 0.8)`;
+        ctx.fillRect(this.x, this.y, 3, 3);
+    }
+
+    explode() {
+        // 每次爆炸都分配一部分粒子去组成文字
+        let textPixelIdx = 0;
+        for (let i = 0; i < CONFIG.particleBaseCount; i++) {
+            // 约 40% 的粒子是文字粒子
+            let targetIdx = null;
+            if (i % 2.5 < 1 && textPixels.length > 0) {
+                targetIdx = textPixelIdx % textPixels.length;
+                textPixelIdx++;
+            }
+            // 文字粒子倾向于金色/暖色，普通粒子多彩
+            const hue = targetIdx ? random(30, 60) : this.hue + random(-30, 30);
+            particles.push(new Particle(this.x, this.y, hue, targetIdx));
         }
     }
 }
 
-// 创建爆炸粒子
-function createParticles(x, y, isText) {
-    let count = isText ? CONFIG.textParticleCount : CONFIG.particleCount;
-    
-    if (isText && textPixels.length > 0) {
-        // 随机选取文字像素点作为目标
-        for (let i = 0; i < count; i++) {
-            const targetIndex = Math.floor(random(0, textPixels.length));
-            const target = textPixels[targetIndex];
-            // 文字粒子使用单一颜色(如金色)效果更好
-            particles.push(new Particle(x, y, '#FFD700', target.x, target.y));
-        }
-    } else {
-        // 普通爆炸
-        const color = getRandomColor();
-        for (let i = 0; i < count; i++) {
-            particles.push(new Particle(x, y, color));
-        }
-    }
-}
-
-
-// ---------------------------------------------------------
-// 动画主循环
-// ---------------------------------------------------------
 function loop() {
-    requestAnimationFrame(loop);
-
-    // 制造拖尾效果：用半透明黑色覆盖上一帧
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'; // 透明度越低拖尾越长
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-    // 切换回正常绘制模式
+    // 制造拖尾效果
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(2, 2, 5, 0.15)'; // 深色半透明背景
+    ctx.fillRect(0, 0, cw, ch);
+    
+    // 【关键】开启叠加变亮模式，营造绚丽光感
     ctx.globalCompositeOperation = 'lighter';
 
     let i = fireworks.length;
     while(i--) {
+        fireworks[i].update();
         fireworks[i].draw();
-        fireworks[i].update(i);
+        if (fireworks[i].done) fireworks.splice(i, 1);
     }
 
     let j = particles.length;
     while(j--) {
+        particles[j].update();
         particles[j].draw();
-        particles[j].update(j);
+        if (particles[j].alpha <= 0) particles.splice(j, 1);
     }
+    requestAnimationFrame(loop);
 }
 
-// ---------------------------------------------------------
-// 事件监听
-// ---------------------------------------------------------
-function handleInteraction(e) {
-    e.preventDefault(); // 防止移动端默认的滚动和缩放
-    const clientX = e.clientX || e.touches[0].clientX;
-    const clientY = e.clientY || e.touches[0].clientY;
+// 工具函数
+function random(min, max) { return Math.random() * (max - min) + min; }
 
-    // 随机决定是发射普通烟花还是文字烟花
-    const isText = Math.random() < CONFIG.textFireworkChance;
-    // 发射点在底部中心附近随机
-    const startX = canvasWidth / 2 + random(-100, 100);
-    const startY = canvasHeight;
-    
-    fireworks.push(new Firework(startX, startY, clientX, clientY, isText));
+// 交互事件
+function handle Tap(e) {
+    e.preventDefault();
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    fireworks.push(new Firework(cw/2, ch, x, y));
 }
+canvas.addEventListener('touchstart', handleTap, { passive: false });
+canvas.addEventListener('mousedown', handleTap);
 
-canvas.addEventListener('mousedown', handleInteraction);
-canvas.addEventListener('touchstart', handleInteraction, { passive: false });
+window.addEventListener('resize', init);
 
-// 启动动画
+init();
 loop();
-
-// 自动来一发开场烟花
-setTimeout(() => {
-     fireworks.push(new Firework(canvasWidth / 2, canvasHeight, canvasWidth / 2, canvasHeight * 0.3, true));
-}, 1000);
-
 </script>
 </body>
 </html>
