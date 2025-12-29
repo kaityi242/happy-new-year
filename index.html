@@ -2,29 +2,34 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>✨ 璀璨之约 - 致谢伊菲 ✨</title>
+    <title>✨ 2026 璀璨之约 - 致谢伊菲 ✨</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
     <style>
         body { margin: 0; background: #000; overflow: hidden; touch-action: none; }
         canvas { display: block; }
         #overlay {
-            position: absolute; bottom: 5%; width: 100%; text-align: center;
-            color: rgba(255,255,255,0.4); font-family: sans-serif;
-            font-size: 12px; pointer-events: none; text-shadow: 0 0 5px #000;
+            position: absolute; bottom: 3%; width: 100%; text-align: center;
+            color: rgba(255,255,255,0.3); font-family: sans-serif; font-size: 12px;
+            pointer-events: none; letter-spacing: 2px;
         }
     </style>
 </head>
 <body>
-    <div id="overlay">连点屏幕 · 编织浪漫烟火</div>
+    <div id="overlay">点击屏幕发射烟火 · 见证浪漫时刻</div>
     <canvas id="c"></canvas>
 
     <script>
     const canvas = document.getElementById('c');
     const ctx = canvas.getContext('2d', { alpha: false });
-    let cw, ch, particles = [];
+    let cw, ch, particles = [], rockets = [];
     
-    // 自动播放文字内容
-    const autoTextList = ["2026", "谢伊菲", "新年快乐", "❤️"];
+    // 自动播放文字内容及纵向位置(0.2表示屏幕上方20%处)
+    const autoTextList = [
+        { text: "2026", pos: 0.15 },
+        { text: "谢伊菲", pos: 0.35 },
+        { text: "新年快乐", pos: 0.55 },
+        { text: "🎆🎆🎆", pos: 0.80 }
+    ];
     let autoTextIdx = 0;
 
     function init() {
@@ -32,136 +37,141 @@
         ch = canvas.height = window.innerHeight;
     }
 
-    function getPixels(text) {
+    // 获取特定位置的文字像素
+    function getPixels(text, yPosPercent) {
         const tCanvas = document.createElement('canvas');
         const tCtx = tCanvas.getContext('2d');
         tCanvas.width = cw; tCanvas.height = ch;
         tCtx.fillStyle = "white";
-        const fontSize = text.length > 3 ? cw * 0.14 : cw * 0.22;
+        // 加大字体：手机端更清晰
+        const fontSize = text.length > 3 ? cw * 0.18 : cw * 0.25;
         tCtx.font = `bold ${fontSize}px sans-serif`;
         tCtx.textAlign = "center";
-        tCtx.textBaseline = "middle";
-        tCtx.fillText(text, cw/2, ch/2);
+        tCtx.fillText(text, cw/2, ch * yPosPercent);
         
         const data = tCtx.getImageData(0, 0, cw, ch).data;
         const pts = [];
-        const gap = 6; 
-        for (let y = 0; y < ch; y += gap) {
-            for (let x = 0; x < cw; x += gap) {
+        for (let y = 0; y < ch; y += 7) {
+            for (let x = 0; x < cw; x += 7) {
                 if (data[((y * cw + x) * 4) + 3] > 128) pts.push({x, y});
             }
         }
         return pts;
     }
 
+    // 烟花弹类（从下往上飞）
+    class Rocket {
+        constructor(tx, ty, isAuto = false) {
+            this.x = cw / 2 + (Math.random() - 0.5) * 100; // 从底部中间随机偏移
+            this.y = ch;
+            this.tx = tx;
+            this.ty = ty;
+            this.isAuto = isAuto;
+            this.hue = isAuto ? 45 : Math.random() * 360;
+            this.v = random(12, 18); // 初始上升速度
+            this.done = false;
+        }
+        update() {
+            const dx = this.tx - this.x;
+            const dy = this.ty - this.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < 15) {
+                this.explode();
+                this.done = true;
+            } else {
+                this.x += (dx/dist) * this.v;
+                this.y += (dy/dist) * this.v;
+                this.v *= 0.98; // 稍微减速更有真实感
+            }
+        }
+        draw() {
+            ctx.fillStyle = `hsla(${this.hue}, 100%, 70%, 1)`;
+            ctx.fillRect(this.x, this.y, 3, 3); // 弹头
+        }
+        explode() {
+            if (this.isAuto) {
+                const item = autoTextList[autoTextIdx];
+                const pts = getPixels(item.text, item.pos);
+                autoTextIdx = (autoTextIdx + 1) % autoTextList.length;
+                pts.forEach(p => particles.push(new Particle(this.x, this.y, 45, p)));
+            } else {
+                const count = 100;
+                for(let i=0; i<count; i++) particles.push(new Particle(this.x, this.y, this.hue));
+            }
+        }
+    }
+
     class Particle {
-        constructor(x, y, h, target = null, options = {}) {
+        constructor(x, y, h, target = null) {
             this.x = x; this.y = y; this.h = h;
             this.target = target;
             this.alpha = 1;
-            this.options = options;
-            
-            // 消散速度：手动点击的粒子消散极慢 (0.005 - 0.01)
-            this.decay = target ? 0.007 : random(0.005, 0.012);
-            
-            if (target) {
-                this.vx = random(-3, 3);
-                this.vy = random(-3, 3);
-            } else {
-                const angle = options.angle || Math.random() * Math.PI * 2;
-                const speed = options.speed || random(2, 12);
-                this.vx = Math.cos(angle) * speed;
-                this.vy = Math.sin(angle) * speed;
-            }
-            
-            this.gravity = options.gravity || 0.04; // 较小的重力产生垂柳感
-            this.friction = options.friction || 0.96; // 阻力
+            // 自动文字粒子消散极慢(0.003)，手动粒子常规(0.01)
+            this.decay = target ? 0.003 : random(0.01, 0.02);
+            const angle = Math.random() * Math.PI * 2;
+            const speed = target ? random(-2, 2) : random(2, 10);
+            this.vx = Math.cos(angle) * speed;
+            this.vy = Math.sin(angle) * speed;
         }
-
         update() {
             if (this.target) {
                 const dx = this.target.x - this.x;
                 const dy = this.target.y - this.y;
-                this.vx += dx * 0.005;
-                this.vy += dy * 0.005;
-                this.vx *= 0.92; this.vy *= 0.92;
+                this.vx += dx * 0.003;
+                this.vy += dy * 0.003;
+                this.vx *= 0.93; this.vy *= 0.93;
             } else {
-                this.vy += this.gravity;
-                this.vx *= this.friction;
-                this.vy *= this.friction;
+                this.vy += 0.08;
+                this.vx *= 0.96; this.vy *= 0.96;
             }
-            this.x += this.vx;
-            this.y += this.vy;
+            this.x += this.vx; this.y += this.vy;
             this.alpha -= this.decay;
         }
-
         draw() {
-            // 增加闪烁感
-            const shine = Math.random() > 0.5 ? 1 : 0.7;
-            ctx.fillStyle = `hsla(${this.h}, 100%, 75%, ${this.alpha * shine})`;
-            // 粒子大小：手动点击的粒子稍大一点，更有存在感
-            const size = this.target ? 1.5 : random(1, 3);
-            ctx.fillRect(this.x, this.y, size, size);
-        }
-    }
-
-    function launchFirework(tx, ty, isAuto = false) {
-        if (isAuto) {
-            const pts = getPixels(autoTextList[autoTextIdx]);
-            autoTextIdx = (autoTextIdx + 1) % autoTextList.length;
-            pts.forEach(p => particles.push(new Particle(tx, ty, 45, p)));
-        } else {
-            const h = random(0, 360);
-            const mode = Math.floor(random(0, 4));
-            
-            if (mode === 0) { // 垂柳型：长拖尾，下落慢
-                for(let i=0; i<120; i++) 
-                    particles.push(new Particle(tx, ty, h, null, { speed: random(1, 10), gravity: 0.02, friction: 0.98 }));
-            } else if (mode === 1) { // 闪烁星辰：消散极慢
-                for(let i=0; i<80; i++) 
-                    particles.push(new Particle(tx, ty, random(40, 60), null, { speed: random(2, 15), decay: 0.003 }));
-            } else if (mode === 2) { // 环形礼花
-                for(let i=0; i<150; i++) {
-                    const angle = (i / 150) * Math.PI * 2;
-                    particles.push(new Particle(tx, ty, h, null, { angle: angle, speed: 6 }));
-                }
-            } else { // 爆发型
-                for(let i=0; i<200; i++) 
-                    particles.push(new Particle(tx, ty, h, null, { speed: random(10, 20), friction: 0.9 }));
-            }
+            const s = this.target ? 2 : 1.5;
+            ctx.fillStyle = `hsla(${this.h}, 100%, 70%, ${this.alpha})`;
+            ctx.fillRect(this.x, this.y, s, s);
         }
     }
 
     function loop() {
         ctx.globalCompositeOperation = 'source-over';
-        // 降低覆盖层透明度，增强长拖尾效果
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.1)'; 
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
         ctx.fillRect(0, 0, cw, ch);
         ctx.globalCompositeOperation = 'lighter';
-        
-        for (let i = particles.length - 1; i >= 0; i--) {
-            particles[i].update();
-            particles[i].draw();
-            if (particles[i].alpha <= 0) particles.splice(i, 1);
-        }
+
+        rockets.forEach((r, i) => {
+            r.update(); r.draw();
+            if (r.done) rockets.splice(i, 1);
+        });
+
+        particles.forEach((p, i) => {
+            p.update(); p.draw();
+            if (p.alpha <= 0) particles.splice(i, 1);
+        });
         requestAnimationFrame(loop);
     }
 
     function random(min, max) { return Math.random() * (max - min) + min; }
 
-    window.addEventListener('mousedown', e => launchFirework(e.clientX, e.clientY));
     window.addEventListener('touchstart', e => {
         e.preventDefault();
-        launchFirework(e.touches[0].clientX, e.touches[0].clientY);
+        rockets.push(new Rocket(e.touches[0].clientX, e.touches[0].clientY));
     }, { passive: false });
+    window.addEventListener('mousedown', e => rockets.push(new Rocket(e.clientX, e.clientY)));
     window.addEventListener('resize', init);
 
     init();
     loop();
 
-    // 自动播放频率
-    setInterval(() => launchFirework(cw/2, ch/2, true), 5000);
-    setTimeout(() => launchFirework(cw/2, ch/2, true), 1000);
+    // 自动播放：每 4.5 秒发射一个文字烟火
+    setInterval(() => {
+        const item = autoTextList[autoTextIdx];
+        rockets.push(new Rocket(cw/2, ch * item.pos, true));
+    }, 4500);
+    
+    // 首发延迟
+    setTimeout(() => rockets.push(new Rocket(cw/2, ch * autoTextList[0].pos, true)), 1000);
     </script>
 </body>
 </html>
