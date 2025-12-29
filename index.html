@@ -6,21 +6,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <style>
     body { margin: 0; overflow: hidden; background: #020205; touch-action: none; }
-    canvas { display: block; }
+    canvas { display: block; background: #000; }
     .hint {
         position: absolute; bottom: 8%; width: 100%; text-align: center;
-        color: rgba(255, 255, 255, 0.3); font-family: sans-serif; font-size: 14px;
-        pointer-events: none; letter-spacing: 2px;
+        color: rgba(255, 255, 255, 0.4); font-family: sans-serif; font-size: 14px;
+        pointer-events: none; letter-spacing: 2px; z-index: 10;
     }
 </style>
 </head>
 <body>
-<div class="hint">轻触屏幕 · 点亮为你而汇聚的星光</div>
+<div class="hint">点击屏幕 · 开启专属烟花</div>
 <canvas id="canvas"></canvas>
 
 <script>
 const canvas = document.getElementById('canvas');
-// 使用 lighter 模式会让粒子叠加变亮，制造发光感
 const ctx = canvas.getContext('2d', { alpha: false });
 
 let cw, ch;
@@ -28,13 +27,12 @@ let fireworks = [];
 let particles = [];
 let textPixels = [];
 
-// --- 核心配置 ---
 const CONFIG = {
     text: "谢伊菲\n新年快乐",
-    particleBaseCount: 300,   // 每次爆炸的基础粒子数
-    textPixelGap: 7,          // 文字像素采样间距 (越小字越密，但越卡)
-    gravity: 0.04,
-    friction: 0.96
+    particleBaseCount: 200,   
+    textPixelGap: 8,          
+    gravity: 0.05,
+    friction: 0.95
 };
 
 function init() {
@@ -43,7 +41,6 @@ function init() {
     prepareText();
 }
 
-// 1. 预处理：把文字变成坐标点
 function prepareText() {
     const tCanvas = document.createElement('canvas');
     const tCtx = tCanvas.getContext('2d');
@@ -51,8 +48,7 @@ function prepareText() {
     tCanvas.height = ch;
     
     tCtx.fillStyle = "#fff";
-    // 根据屏幕宽度动态调整字体大小
-    tCtx.font = `bold ${cw * 0.16}px sans-serif`;
+    tCtx.font = `bold ${cw * 0.15}px sans-serif`;
     tCtx.textAlign = "center";
     tCtx.textBaseline = "middle";
     
@@ -67,122 +63,95 @@ function prepareText() {
     textPixels = [];
     for (let y = 0; y < ch; y += CONFIG.textPixelGap) {
         for (let x = 0; x < cw; x += CONFIG.textPixelGap) {
-            // 透明度 > 128 认为是文字部分
             if (data[((y * cw + x) * 4) + 3] > 128) {
                 textPixels.push({x, y});
             }
         }
     }
-    // 打乱像素点顺序，让汇聚过程更自然
     textPixels.sort(() => Math.random() - 0.5);
 }
 
-// 2. 粒子类：核心动画逻辑
 class Particle {
     constructor(x, y, hue, targetIdx = null) {
         this.x = x; this.y = y;
         this.hue = hue;
         this.alpha = 1;
-        // 如果 targetIdx 不是 null，这个粒子就会飞向文字
         this.target = targetIdx !== null ? textPixels[targetIdx] : null;
         
         const angle = Math.random() * Math.PI * 2;
-        // 爆炸初始速度
-        const speed = Math.random() * 10 + 2;
+        const speed = Math.random() * 8 + 2;
         this.vx = Math.cos(angle) * speed;
         this.vy = Math.sin(angle) * speed;
         
-        // 文字粒子衰减慢，普通粒子衰减快
-        this.decay = this.target ? random(0.005, 0.01) : random(0.015, 0.03);
-        // 粒子大小差异化
-        this.size = this.target ? random(1.5, 3) : random(1, 2);
+        this.decay = this.target ? 0.008 : 0.02;
+        this.size = this.target ? 2.5 : 1.5;
     }
 
     update() {
         if (this.target) {
-            // 【核心算法】粒子汇聚逻辑
             const dx = this.target.x - this.x;
             const dy = this.target.y - this.y;
-            // 给予一个向目标点的加速度 (引力)
-            this.vx += dx * 0.005;
-            this.vy += dy * 0.005;
-            // 施加较强阻力，防止粒子飞过头并稳定在字形上
-            this.vx *= 0.92;
-            this.vy *= 0.92;
+            this.vx += dx * 0.004;
+            this.vy += dy * 0.004;
+            this.vx *= 0.9;
+            this.vy *= 0.9;
         } else {
-            // 普通粒子逻辑：受重力和阻力影响
             this.vx *= CONFIG.friction;
             this.vy *= CONFIG.friction;
             this.vy += CONFIG.gravity;
         }
-        
         this.x += this.vx;
         this.y += this.vy;
         this.alpha -= this.decay;
     }
 
     draw() {
-        // 使用 HSLA 颜色模式，色彩更绚丽
-        ctx.fillStyle = `hsla(${this.hue}, 100%, 60%, ${this.alpha})`;
-        // 用小矩形代替圆，提升性能
+        ctx.fillStyle = `hsla(${this.hue}, 100%, 65%, ${this.alpha})`;
         ctx.fillRect(this.x, this.y, this.size, this.size);
     }
 }
 
-// 3. 烟花类：发射阶段
 class Firework {
     constructor(sx, sy, tx, ty) {
         this.x = sx; this.y = sy;
         this.tx = tx; this.ty = ty;
-        this.speed = random(10, 14);
-        // 随机色相，营造多彩效果
-        this.hue = random(0, 360);
+        this.speed = 10;
+        this.hue = Math.random() * 360;
         this.done = false;
     }
-
     update() {
         const dx = this.tx - this.x;
         const dy = this.ty - this.y;
         const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < this.speed) {
+        if (dist < 10) {
             this.explode();
             this.done = true;
         } else {
             this.x += (dx/dist) * this.speed;
             this.y += (dy/dist) * this.speed;
-            this.speed *= 0.98; // 接近顶点时减速
         }
     }
-
     draw() {
-        ctx.fillStyle = `hsla(${this.hue}, 100%, 70%, 0.8)`;
+        ctx.fillStyle = `hsla(${this.hue}, 100%, 70%, 1)`;
         ctx.fillRect(this.x, this.y, 3, 3);
     }
-
     explode() {
-        // 每次爆炸都分配一部分粒子去组成文字
         let textPixelIdx = 0;
         for (let i = 0; i < CONFIG.particleBaseCount; i++) {
-            // 约 40% 的粒子是文字粒子
             let targetIdx = null;
-            if (i % 2.5 < 1 && textPixels.length > 0) {
-                targetIdx = textPixelIdx % textPixels.length;
-                textPixelIdx++;
+            if (i % 2 === 0 && textPixels.length > 0) {
+                targetIdx = Math.floor(Math.random() * textPixels.length);
             }
-            // 文字粒子倾向于金色/暖色，普通粒子多彩
-            const hue = targetIdx ? random(30, 60) : this.hue + random(-30, 30);
+            const hue = targetIdx ? 45 : this.hue + (Math.random()*40-20);
             particles.push(new Particle(this.x, this.y, hue, targetIdx));
         }
     }
 }
 
 function loop() {
-    // 制造拖尾效果
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = 'rgba(2, 2, 5, 0.15)'; // 深色半透明背景
+    ctx.fillStyle = 'rgba(2, 2, 5, 0.2)';
     ctx.fillRect(0, 0, cw, ch);
-    
-    // 【关键】开启叠加变亮模式，营造绚丽光感
     ctx.globalCompositeOperation = 'lighter';
 
     let i = fireworks.length;
@@ -201,23 +170,31 @@ function loop() {
     requestAnimationFrame(loop);
 }
 
-// 工具函数
-function random(min, max) { return Math.random() * (max - min) + min; }
-
-// 交互事件
-function handle Tap(e) {
-    e.preventDefault();
-    const x = e.touches ? e.touches[0].clientX : e.clientX;
-    const y = e.touches ? e.touches[0].clientY : e.clientY;
-    fireworks.push(new Firework(cw/2, ch, x, y));
+// 统一交互函数
+function launch(clientX, clientY) {
+    fireworks.push(new Firework(cw/2, ch, clientX, clientY));
 }
-canvas.addEventListener('touchstart', handleTap, { passive: false });
-canvas.addEventListener('mousedown', handleTap);
+
+// 监听点击和触摸
+canvas.addEventListener('mousedown', e => launch(e.clientX, e.clientY));
+canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    launch(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: false });
 
 window.addEventListener('resize', init);
 
+// 初始化并启动
 init();
 loop();
+
+// 自动演示：如果用户不点，每3秒自动放一个
+setInterval(() => {
+    if (fireworks.length === 0 && particles.length < 50) {
+        launch(Math.random() * cw, ch * 0.3);
+    }
+}, 3000);
+
 </script>
 </body>
 </html>
