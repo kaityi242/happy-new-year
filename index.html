@@ -1,200 +1,166 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<title>✨致谢伊菲 - 璀璨星河✨</title>
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<style>
-    body { margin: 0; overflow: hidden; background: #020205; touch-action: none; }
-    canvas { display: block; background: #000; }
-    .hint {
-        position: absolute; bottom: 8%; width: 100%; text-align: center;
-        color: rgba(255, 255, 255, 0.4); font-family: sans-serif; font-size: 14px;
-        pointer-events: none; letter-spacing: 2px; z-index: 10;
-    }
-</style>
+    <meta charset="UTF-8">
+    <title>✨ 2026 璀璨之约 - 致谢伊菲 ✨</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; touch-action: none; }
+        canvas { display: block; }
+        #overlay {
+            position: absolute; bottom: 5%; width: 100%; text-align: center;
+            color: rgba(255,255,255,0.4); font-family: "Microsoft YaHei", sans-serif;
+            font-size: 13px; letter-spacing: 1px; pointer-events: none;
+        }
+    </style>
 </head>
 <body>
-<div class="hint">点击屏幕 · 开启专属烟花</div>
-<canvas id="canvas"></canvas>
+    <div id="overlay">✨ 自动巡演中 · 点击屏幕释放惊喜 ✨</div>
+    <canvas id="c"></canvas>
 
-<script>
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d', { alpha: false });
-
-let cw, ch;
-let fireworks = [];
-let particles = [];
-let textPixels = [];
-
-const CONFIG = {
-    text: "谢伊菲\n新年快乐",
-    particleBaseCount: 200,   
-    textPixelGap: 8,          
-    gravity: 0.05,
-    friction: 0.95
-};
-
-function init() {
-    cw = canvas.width = window.innerWidth;
-    ch = canvas.height = window.innerHeight;
-    prepareText();
-}
-
-function prepareText() {
-    const tCanvas = document.createElement('canvas');
-    const tCtx = tCanvas.getContext('2d');
-    tCanvas.width = cw;
-    tCanvas.height = ch;
+    <script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    let cw, ch, particles = [], fireworks = [];
     
-    tCtx.fillStyle = "#fff";
-    tCtx.font = `bold ${cw * 0.15}px sans-serif`;
-    tCtx.textAlign = "center";
-    tCtx.textBaseline = "middle";
-    
-    const lines = CONFIG.text.split('\n');
-    const lineHeight = cw * 0.18;
-    const startY = (ch - (lines.length - 1) * lineHeight) / 2;
-    lines.forEach((line, i) => {
-        tCtx.fillText(line, cw/2, startY + i * lineHeight);
-    });
+    // --- 1. 自动轮播的文字库 ---
+    // 你可以随时在这里添加更多的词，比如 "永远开心", "万事胜意"
+    const autoTextList = ["2026", "谢伊菲", "新年快乐", "🎆🎆🎆"];
+    let autoTextIdx = 0;
 
-    const data = tCtx.getImageData(0, 0, cw, ch).data;
-    textPixels = [];
-    for (let y = 0; y < ch; y += CONFIG.textPixelGap) {
-        for (let x = 0; x < cw; x += CONFIG.textPixelGap) {
-            if (data[((y * cw + x) * 4) + 3] > 128) {
-                textPixels.push({x, y});
+    function init() {
+        cw = canvas.width = window.innerWidth;
+        ch = canvas.height = window.innerHeight;
+    }
+
+    // --- 2. 核心：获取文字像素点的函数 ---
+    function getPixels(text) {
+        const tCanvas = document.createElement('canvas');
+        const tCtx = tCanvas.getContext('2d');
+        tCanvas.width = cw; tCanvas.height = ch;
+        tCtx.fillStyle = "white";
+        // 动态计算字号：字数越多字号越小，防止手机屏幕装不下
+        const fontSize = text.length > 3 ? cw * 0.14 : cw * 0.22;
+        tCtx.font = `bold ${fontSize}px sans-serif`;
+        tCtx.textAlign = "center";
+        tCtx.textBaseline = "middle";
+        tCtx.fillText(text, cw/2, ch/2);
+        
+        const data = tCtx.getImageData(0, 0, cw, ch).data;
+        const pts = [];
+        const gap = 6; // 采样间距
+        for (let y = 0; y < ch; y += gap) {
+            for (let x = 0; x < cw; x += gap) {
+                if (data[((y * cw + x) * 4) + 3] > 128) pts.push({x, y});
+            }
+        }
+        return pts;
+    }
+
+    // --- 3. 粒子类：包含文字汇聚和普通散开两种逻辑 ---
+    class Particle {
+        constructor(x, y, h, target = null, type = 'normal') {
+            this.x = x; this.y = y; this.h = h;
+            this.target = target;
+            this.alpha = 1;
+            // 文字粒子停留时间长，普通粒子消失快
+            this.decay = target ? 0.006 : random(0.015, 0.03);
+            
+            if (target) {
+                // 文字粒子：先随机炸开，再慢慢汇聚
+                this.vx = random(-4, 4);
+                this.vy = random(-4, 4);
+            } else {
+                // 手动烟花：普通抛物线
+                const angle = Math.random() * Math.PI * 2;
+                const speed = type === 'fountain' ? random(4, 12) : random(2, 8);
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+            }
+        }
+        update() {
+            if (this.target) {
+                // 核心汇聚算法：引力公式
+                const dx = this.target.x - this.x;
+                const dy = this.target.y - this.y;
+                this.vx += dx * 0.004;
+                this.vy += dy * 0.004;
+                this.vx *= 0.92; this.vy *= 0.92;
+            } else {
+                this.vy += 0.1; // 重力
+                this.vx *= 0.96; this.vy *= 0.96;
+            }
+            this.x += this.vx; this.y += this.vy;
+            this.alpha -= this.decay;
+        }
+        draw() {
+            ctx.fillStyle = `hsla(${this.h}, 100%, 70%, ${this.alpha})`;
+            ctx.fillRect(this.x, this.y, 2, 2);
+        }
+    }
+
+    // --- 4. 烟花触发函数 ---
+    function launchFirework(tx, ty, isAuto = false) {
+        const h = random(0, 360);
+        if (isAuto) {
+            // 【自动模式】文字烟花
+            const pts = getPixels(autoTextList[autoTextIdx]);
+            autoTextIdx = (autoTextIdx + 1) % autoTextList.length;
+            pts.forEach(p => {
+                // 所有的文字粒子从点击位置（或自动位置）炸开并飞向文字坐标
+                particles.push(new Particle(tx, ty, 45, p)); // 文字统一用温暖的金色
+            });
+        } else {
+            // 【手动模式】随机触发 3 种烟花特效
+            const mode = Math.floor(random(0, 3));
+            const count = 120;
+            if (mode === 0) {
+                // 特效1：金色喷泉
+                for(let i=0; i<count; i++) particles.push(new Particle(tx, ty, 45, null, 'fountain'));
+            } else if (mode === 1) {
+                // 特效2：彩色圆环
+                for(let i=0; i<count; i++) particles.push(new Particle(tx, ty, h));
+            } else {
+                // 特效3：冷色流星
+                for(let i=0; i<count; i++) particles.push(new Particle(tx, ty, random(180, 260)));
             }
         }
     }
-    textPixels.sort(() => Math.random() - 0.5);
-}
 
-class Particle {
-    constructor(x, y, hue, targetIdx = null) {
-        this.x = x; this.y = y;
-        this.hue = hue;
-        this.alpha = 1;
-        this.target = targetIdx !== null ? textPixels[targetIdx] : null;
+    // --- 5. 动画主循环 ---
+    function loop() {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(0,0,0,0.2)'; // 调整透明度控制拖尾长短
+        ctx.fillRect(0, 0, cw, ch);
+        ctx.globalCompositeOperation = 'lighter'; // 让重叠部分发光
         
-        const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 8 + 2;
-        this.vx = Math.cos(angle) * speed;
-        this.vy = Math.sin(angle) * speed;
-        
-        this.decay = this.target ? 0.008 : 0.02;
-        this.size = this.target ? 2.5 : 1.5;
+        particles.forEach((p, i) => {
+            p.update(); p.draw();
+            if (p.alpha <= 0) particles.splice(i, 1);
+        });
+        requestAnimationFrame(loop);
     }
 
-    update() {
-        if (this.target) {
-            const dx = this.target.x - this.x;
-            const dy = this.target.y - this.y;
-            this.vx += dx * 0.004;
-            this.vy += dy * 0.004;
-            this.vx *= 0.9;
-            this.vy *= 0.9;
-        } else {
-            this.vx *= CONFIG.friction;
-            this.vy *= CONFIG.friction;
-            this.vy += CONFIG.gravity;
-        }
-        this.x += this.vx;
-        this.y += this.vy;
-        this.alpha -= this.decay;
-    }
+    function random(min, max) { return Math.random() * (max - min) + min; }
 
-    draw() {
-        ctx.fillStyle = `hsla(${this.hue}, 100%, 65%, ${this.alpha})`;
-        ctx.fillRect(this.x, this.y, this.size, this.size);
-    }
-}
+    // --- 6. 交互监听 ---
+    window.addEventListener('mousedown', e => launchFirework(e.clientX, e.clientY));
+    window.addEventListener('touchstart', e => {
+        e.preventDefault();
+        launchFirework(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: false });
+    window.addEventListener('resize', init);
 
-class Firework {
-    constructor(sx, sy, tx, ty) {
-        this.x = sx; this.y = sy;
-        this.tx = tx; this.ty = ty;
-        this.speed = 10;
-        this.hue = Math.random() * 360;
-        this.done = false;
-    }
-    update() {
-        const dx = this.tx - this.x;
-        const dy = this.ty - this.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < 10) {
-            this.explode();
-            this.done = true;
-        } else {
-            this.x += (dx/dist) * this.speed;
-            this.y += (dy/dist) * this.speed;
-        }
-    }
-    draw() {
-        ctx.fillStyle = `hsla(${this.hue}, 100%, 70%, 1)`;
-        ctx.fillRect(this.x, this.y, 3, 3);
-    }
-    explode() {
-        let textPixelIdx = 0;
-        for (let i = 0; i < CONFIG.particleBaseCount; i++) {
-            let targetIdx = null;
-            if (i % 2 === 0 && textPixels.length > 0) {
-                targetIdx = Math.floor(Math.random() * textPixels.length);
-            }
-            const hue = targetIdx ? 45 : this.hue + (Math.random()*40-20);
-            particles.push(new Particle(this.x, this.y, hue, targetIdx));
-        }
-    }
-}
+    init();
+    loop();
 
-function loop() {
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = 'rgba(2, 2, 5, 0.2)';
-    ctx.fillRect(0, 0, cw, ch);
-    ctx.globalCompositeOperation = 'lighter';
+    // --- 7. 定时器：每 5 秒自动循环一次文字 ---
+    setInterval(() => {
+        launchFirework(cw/2, ch/2, true);
+    }, 5000);
 
-    let i = fireworks.length;
-    while(i--) {
-        fireworks[i].update();
-        fireworks[i].draw();
-        if (fireworks[i].done) fireworks.splice(i, 1);
-    }
-
-    let j = particles.length;
-    while(j--) {
-        particles[j].update();
-        particles[j].draw();
-        if (particles[j].alpha <= 0) particles.splice(j, 1);
-    }
-    requestAnimationFrame(loop);
-}
-
-// 统一交互函数
-function launch(clientX, clientY) {
-    fireworks.push(new Firework(cw/2, ch, clientX, clientY));
-}
-
-// 监听点击和触摸
-canvas.addEventListener('mousedown', e => launch(e.clientX, e.clientY));
-canvas.addEventListener('touchstart', e => {
-    e.preventDefault();
-    launch(e.touches[0].clientX, e.touches[0].clientY);
-}, { passive: false });
-
-window.addEventListener('resize', init);
-
-// 初始化并启动
-init();
-loop();
-
-// 自动演示：如果用户不点，每3秒自动放一个
-setInterval(() => {
-    if (fireworks.length === 0 && particles.length < 50) {
-        launch(Math.random() * cw, ch * 0.3);
-    }
-}, 3000);
-
-</script>
+    // 开场 1 秒后自动释放第一个词
+    setTimeout(() => launchFirework(cw/2, ch/2, true), 1000);
+    </script>
 </body>
 </html>
