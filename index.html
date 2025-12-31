@@ -5,121 +5,75 @@
     <title>✨2026 新年快乐✨</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        /* 【优化：星空背景】 */
         body { 
             margin: 0; 
             background: #000; /* 备用背景色 */
+            /* 使用CSS渐变和径向渐变模拟星空，不占用Canvas资源 */
             background-image: 
                 radial-gradient(1px 1px at 20px 30px, #fff, rgba(0,0,0,0)),
                 radial-gradient(1.5px 1.5px at 100px 150px, #fff, rgba(0,0,0,0)),
                 radial-gradient(1px 1px at 250px 50px, #ddd, rgba(0,0,0,0)),
                 radial-gradient(2px 2px at 150px 300px, #fff, rgba(0,0,0,0)),
-                radial-gradient(0.8px 0.8px at 400px 200px, #eee, rgba(0,0,0,0)),
                 linear-gradient(to bottom, #020107 0%, #050516 100%);
-            background-size: 350px 350px, 450px 450px, 380px 380px, 550px 550px, 400px 400px, 100% 100%;
+            background-size: 300px 300px, 400px 400px, 350px 350px, 500px 500px, 100% 100%;
             overflow: hidden; 
             touch-action: none; 
-            cursor: crosshair;
         }
-        canvas { 
-            display: block; 
-            width: 100vw; 
-            height: 100vh;
-        }
+        canvas { display: block; }
         #overlay {
-            position: absolute; 
-            bottom: 3%; 
-            width: 100%; 
-            text-align: center;
-            color: rgba(255,255,255,0.6);
-            font-family: "PingFang SC", "Microsoft YaHei", sans-serif; 
-            font-size: 14px;
-            pointer-events: none; 
-            letter-spacing: 3px;
-            text-shadow: 0 0 5px rgba(255,255,255,0.3);
-            transition: opacity 0.5s ease;
-        }
-        @media (max-width: 500px) {
-            #overlay {
-                bottom: 5%;
-                font-size: 12px;
-                letter-spacing: 2px;
-            }
+            position: absolute; bottom: 3%; width: 100%; text-align: center;
+            color: rgba(255,255,255,0.3); font-family: sans-serif; font-size: 12px;
+            pointer-events: none; letter-spacing: 2px;
         }
     </style>
 </head>
 <body>
-    <div id="overlay">点屏幕放烟花 🎆</div>
+    <div id="overlay">点屏幕放烟花</div>
     <canvas id="c"></canvas>
 
     <script>
     const canvas = document.getElementById('c');
-    const overlay = document.getElementById('overlay');
-    const ctx = canvas.getContext('2d', { alpha: true, willReadFrequently: true });
-    let cw, ch;
-    let particles = [];
-    let rockets = [];
-    let animationFrameId;
+    // 开启alpha以显示CSS背景星星
+    const ctx = canvas.getContext('2d', { alpha: true });
+    let cw, ch, particles = [], rockets = [];
     
-    // 【文字配置】- 可自定义
+    // 【文字配置】
     const autoTextList = [
         { text: "2026", pos: 0.30 },
         { text: "谢伊菲", pos: 0.50 },
         { text: "新年快乐", pos: 0.72 },
     ];
     let autoTextIdx = 0;
+    let autoFireTimer = null;
 
     function init() {
-        const dpr = window.devicePixelRatio || 1;
-        cw = canvas.width = window.innerWidth * dpr;
-        ch = canvas.height = window.innerHeight * dpr;
-        canvas.style.width = `${window.innerWidth}px`;
-        canvas.style.height = `${window.innerHeight}px`;
-        ctx.scale(dpr, dpr);
-        cw = window.innerWidth;
-        ch = window.innerHeight;
+        cw = canvas.width = window.innerWidth;
+        ch = canvas.height = window.innerHeight;
     }
 
-    // 【核心优化1：大幅提升文字粒子密度】
     function getPixels(text, yPosPercent) {
         const tCanvas = document.createElement('canvas');
         const tCtx = tCanvas.getContext('2d');
-        // 【优化：临时画布不缩放，保证文字细节】
-        const tempW = cw;
-        const tempH = ch;
-        tCanvas.width = tempW;
-        tCanvas.height = tempH;
+        tCanvas.width = cw; tCanvas.height = ch;
+        tCtx.fillStyle = "white";
         
-        // 【优化2：增大手机端字号，让文字更占屏】
+        // 【适配：手机端字号优化】
         const isMobile = cw < 500;
-        // 手机端字号进一步增大，文字更醒目
-        const fontSize = text.length > 3 
-            ? tempW * (isMobile ? 0.25 : 0.15)  // 多字（如新年快乐）
-            : tempW * (isMobile ? 0.35 : 0.22); // 少字（如2026）
+        const fontSize = text.length > 3 ? cw * (isMobile ? 0.2 : 0.15) : cw * (isMobile ? 0.28 : 0.22);
         
-        // 【优化3：加粗字体+文字描边，增强对比度】
-        tCtx.font = `900 ${fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+        tCtx.font = `bold ${fontSize}px sans-serif`;
         tCtx.textAlign = "center";
         tCtx.textBaseline = "middle";
+        tCtx.fillText(text, cw/2, ch * yPosPercent);
         
-        // 文字描边（增强视觉效果）
-        tCtx.strokeStyle = "white";
-        tCtx.lineWidth = fontSize * 0.05; // 描边宽度随字号自适应
-        tCtx.strokeText(text, tempW/2, tempH * yPosPercent);
-        // 填充文字
-        tCtx.fillStyle = "white";
-        tCtx.fillText(text, tempW/2, tempH * yPosPercent);
-        
-        const data = tCtx.getImageData(0, 0, tempW, tempH).data;
+        const data = tCtx.getImageData(0, 0, cw, ch).data;
         const pts = [];
-        // 【核心优化：粒子步长从4改为2，密度翻倍】
-        const step = isMobile ? 2 : 3; // 手机端步长更小，密度更高
-        for (let y = 0; y < tempH; y += step) {
-            for (let x = 0; x < tempW; x += step) {
-                // 【优化4：降低透明度阈值，捕捉更多像素点】
-                if (data[((y * tempW + x) * 4) + 3] > 80) { // 从128降到80
-                    pts.push({x, y});
-                }
+        // 【要求：粒子密集度设为 4】
+        const step = 4; 
+        for (let y = 0; y < ch; y += step) {
+            for (let x = 0; x < cw; x += step) {
+                if (data[((y * cw + x) * 4) + 3] > 128) pts.push({x, y});
             }
         }
         return pts;
@@ -130,44 +84,35 @@
             this.isAuto = isAuto;
             this.x = cw / 2 + random(-120, 120);
             this.y = ch;
-            this.tx = isAuto ? cw / 2 : random(cw * 0.15, cw * 0.85);
-            this.ty = isAuto 
-                ? ch * autoTextList[autoTextIdx].pos 
-                : random(ch * 0.1, ch * 0.55);
+            
+            if (isAuto) {
+                this.tx = cw / 2;
+                this.ty = ch * autoTextList[autoTextIdx].pos;
+            } else {
+                // 【保留你原始的手动随机位置逻辑】
+                this.tx = random(cw * 0.15, cw * 0.85);
+                this.ty = random(ch * 0.1, ch * 0.55);
+            }
+            
             this.hue = random(0, 360);
             this.v = random(12, 16);
             this.done = false;
-            this.trail = [];
         }
 
         update() {
             const dx = this.tx - this.x;
             const dy = this.ty - this.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
-            
             if (dist < 10) {
                 this.explode();
                 this.done = true;
             } else {
-                const ease = 0.98;
-                this.x += (dx/dist) * this.v * ease;
-                this.y += (dy/dist) * this.v * ease;
-                
-                this.trail.push({x: this.x, y: this.y, alpha: 1});
-                if (this.trail.length > 15) this.trail.shift();
+                this.x += (dx/dist) * this.v;
+                this.y += (dy/dist) * this.v;
             }
         }
 
         draw() {
-            ctx.save();
-            for (let i = 0; i < this.trail.length; i++) {
-                const p = this.trail[i];
-                const alpha = p.alpha * (i / this.trail.length);
-                ctx.fillStyle = `hsla(${this.hue}, 100%, 60%, ${alpha})`;
-                ctx.fillRect(p.x, p.y, 2, 3 + i * 0.2);
-            }
-            ctx.restore();
-            
             ctx.fillStyle = `hsla(${this.hue}, 100%, 75%, 1)`;
             ctx.fillRect(this.x, this.y, 2, 5);
         }
@@ -176,13 +121,11 @@
             if (this.isAuto) {
                 const item = autoTextList[autoTextIdx];
                 const pts = getPixels(item.text, item.pos);
+                // 顺序播放，不循环
                 autoTextIdx++; 
                 pts.forEach(p => particles.push(new Particle(this.x, this.y, 45, p)));
-                
-                if (autoTextIdx === autoTextList.length) {
-                    overlay.style.opacity = 0.3;
-                }
             } else {
+                // 【完全保留你原始的四种手动烟花样式】
                 const style = Math.floor(random(0, 4));
                 const count = 200; 
                 const baseHue = random(0, 360);
@@ -208,22 +151,21 @@
         }
     }
 
-    // 【核心优化5：放大文字粒子尺寸，视觉更突出】
     class Particle {
         constructor(x, y, h, target = null, opt = {}) {
-            this.x = x; 
-            this.y = y; 
-            this.h = h;
+            this.x = x; this.y = y; this.h = h;
             this.target = target;
             this.alpha = 1;
-            this.decay = target ? 0 : (opt.decay || random(0.006, 0.012));
+            
+            // 【关键：文字粒子 decay 设为 0 从而实现定格永久弥留】
+            this.decay = target ? 0 : (opt.decay || random(0.006, 0.012)); 
+            
             this.isStrobe = opt.isStrobe || false;
             this.gravity = opt.gravity || 0.05;
             this.friction = opt.friction || 0.96;
             
             if (opt.vx !== undefined) {
-                this.vx = opt.vx; 
-                this.vy = opt.vy;
+                this.vx = opt.vx; this.vy = opt.vy;
             } else {
                 const angle = Math.random() * Math.PI * 2;
                 const speed = opt.speed || (target ? random(2, 6) : random(2, 10));
@@ -236,136 +178,82 @@
             if (this.target) {
                 const dx = this.target.x - this.x;
                 const dy = this.target.y - this.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
+                this.vx += dx * 0.002;
+                this.vy += dy * 0.002;
+                this.vx *= 0.92; this.vy *= 0.92;
                 
-                if (dist > 1) {
-                    this.vx += dx * 0.002;
-                    this.vy += dy * 0.002;
-                    this.vx *= 0.92; 
-                    this.vy *= 0.92;
-                    this.x += this.vx;
-                    this.y += this.vy;
-                } else {
+                // 文字粒子定格逻辑：非常接近目标时停止运动
+                if(Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) {
                     this.x = this.target.x;
                     this.y = this.target.y;
-                    this.vx = 0; 
-                    this.vy = 0;
+                    this.vx = 0; this.vy = 0;
                 }
             } else {
                 this.vy += this.gravity;
                 this.vx *= this.friction;
                 this.vy *= this.friction;
-                this.x += this.vx;
-                this.y += this.vy;
             }
-            
+            this.x += this.vx;
+            this.y += this.vy;
             this.alpha -= this.decay;
         }
 
         draw() {
             if (this.alpha <= 0) return;
-            
             if (this.isStrobe && Math.random() > 0.6) return; 
 
-            // 【核心优化：文字粒子尺寸从1.5放大到2.5（手机端再放大）】
-            const isMobile = cw < 500;
-            const size = this.target 
-                ? (isMobile ? 2.5 : 2.0)  // 文字粒子放大
-                : random(1.5, 3);         // 普通粒子保持不变
-            
+            // 文字粒子密度高时，减小单个粒子尺寸（1.2-2.0），画面更高级不糊
+            const s = this.target ? 1.5 : random(1.5, 3);
             const lightness = this.isStrobe ? 90 : 75;
-            
-            // 【优化6：文字粒子添加外发光效果，增强视觉对比度】
-            if (this.target) {
-                ctx.save();
-                // 外发光层
-                ctx.shadowBlur = 5;
-                ctx.shadowColor = `hsla(${this.h}, 100%, ${lightness}%, ${this.alpha})`;
-                ctx.fillStyle = `hsla(${this.h}, 100%, ${lightness}%, ${this.alpha})`;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, size/2, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            } else {
-                ctx.save();
-                ctx.fillStyle = `hsla(${this.h}, 100%, ${lightness}%, ${this.alpha})`;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, size/2, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            }
+            ctx.fillStyle = `hsla(${this.h}, 100%, ${lightness}%, ${this.alpha})`;
+            ctx.fillRect(this.x, this.y, s, s);
         }
     }
 
     function loop() {
         ctx.globalCompositeOperation = 'source-over';
+        // 使用带透明度的深色，让CSS星空透出来
         ctx.fillStyle = 'rgba(0,0,0,0.15)'; 
         ctx.fillRect(0, 0, cw, ch);
         ctx.globalCompositeOperation = 'lighter';
 
-        for (let i = rockets.length - 1; i >= 0; i--) {
-            const r = rockets[i];
-            r.update(); 
-            r.draw();
+        rockets.forEach((r, i) => {
+            r.update(); r.draw();
             if (r.done) rockets.splice(i, 1);
-        }
+        });
 
-        for (let i = particles.length - 1; i >= 0; i--) {
-            const p = particles[i];
-            p.update(); 
-            p.draw();
+        particles.forEach((p, i) => {
+            p.update(); p.draw();
+            // 只有普通烟花粒子会因为alpha<=0被移除
             if (p.alpha <= 0) particles.splice(i, 1);
-        }
-        
-        // 【优化：放宽粒子数量限制，保证文字完整性】
-        if (particles.length > 15000) {
-            particles = particles.slice(-12000);
-        }
-
-        animationFrameId = requestAnimationFrame(loop);
+        });
+        requestAnimationFrame(loop);
     }
 
-    function random(min, max) { 
-        return Math.random() * (max - min) + min; 
-    }
+    function random(min, max) { return Math.random() * (max - min) + min; }
 
     function manualLaunch() {
         rockets.push(new Rocket(false));
-        if(Math.random() > 0.7) {
-            setTimeout(() => rockets.push(new Rocket(false)), 200);
-        }
-        overlay.style.opacity = 1;
-        setTimeout(() => {
-            if (autoTextIdx === autoTextList.length) {
-                overlay.style.opacity = 0.6;
-            }
-        }, 1000);
+        if(Math.random() > 0.7) setTimeout(() => rockets.push(new Rocket(false)), 200);
     }
 
+    window.addEventListener('touchstart', e => { e.preventDefault(); manualLaunch(); }, { passive: false });
+    window.addEventListener('mousedown', manualLaunch);
+    window.addEventListener('resize', init);
+
+    init();
+    loop();
+
+    // 【核心改动：不循环发射逻辑】
     function startAutoSequence() {
         if (autoTextIdx < autoTextList.length) {
             rockets.push(new Rocket(true));
+            // 3.8秒放下一个字
             setTimeout(startAutoSequence, 3800);
         }
     }
 
-    window.addEventListener('touchstart', e => { 
-        e.preventDefault(); 
-        manualLaunch(); 
-    }, { passive: false });
-    
-    window.addEventListener('mousedown', manualLaunch);
-    window.addEventListener('resize', () => {
-        clearTimeout(window.resizeTimer);
-        window.resizeTimer = setTimeout(init, 100);
-    });
-    
-    window.addEventListener('beforeunload', () => {
-        cancelAnimationFrame(animationFrameId);
-    });
-
-    init();
-    loop();
+    // 1秒后开启第一发
     setTimeout(startAutoSequence, 1000);
     </script>
 </body>
