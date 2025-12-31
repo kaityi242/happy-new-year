@@ -2,34 +2,71 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>✨放烟花✨</title>
+    <title>✨2026 新年快乐✨</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
     <style>
-        body { margin: 0; background: #000; overflow: hidden; touch-action: none; }
-        canvas { display: block; }
+        /* 【修改点1：优化背景】使用 CSS 创建深邃星空背景 */
+        body {
+            margin: 0;
+            overflow: hidden;
+            touch-action: none;
+            /* 深夜渐变背景 */
+            background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+            height: 100vh;
+        }
+
+        /* 使用伪元素创建星星图层，这样不会影响 canvas 的性能 */
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none;
+            /* 利用多重径向渐变模拟大小不一的星星 */
+            background-image: 
+                radial-gradient(2px 2px at 20px 30px, #eee, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 40px 70px, #fff, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 50px 160px, #ddd, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 90px 40px, #fff, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 130px 80px, #fff, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 160px 120px, #ddd, rgba(0,0,0,0));
+            background-repeat: repeat;
+            background-size: 200px 200px;
+            opacity: 0.5; /* 让星星稍微暗一点，不抢烟花风头 */
+        }
+
+        canvas { 
+            display: block; 
+            position: relative; /* 确保 canvas 在星星图层之上 */
+            z-index: 1;
+        }
         #overlay {
             position: absolute; bottom: 3%; width: 100%; text-align: center;
-            color: rgba(255,255,255,0.3); font-family: sans-serif; font-size: 12px;
+            color: rgba(255,255,255,0.5); font-family: sans-serif; font-size: 14px;
             pointer-events: none; letter-spacing: 2px;
+            z-index: 2;
+            text-shadow: 0 0 5px rgba(0,0,0,0.5);
         }
     </style>
 </head>
 <body>
-    <div id="overlay">点屏幕</div>
+    <div id="overlay">点击屏幕燃放烟花</div>
     <canvas id="c"></canvas>
 
     <script>
     const canvas = document.getElementById('c');
-    const ctx = canvas.getContext('2d', { alpha: false });
+    // 【配合背景修改】：将 alpha 设为 true，允许背景透出
+    const ctx = canvas.getContext('2d', { alpha: true });
     let cw, ch, particles = [], rockets = [];
     
     // 【配置：自动播放文字】
     const autoTextList = [
-        { text: "2026", pos: 0.20 },
+        { text: "2026", pos: 0.30 },    // 稍微调高一点位置
         { text: "谢伊菲", pos: 0.50 },
-        { text: "新年快乐", pos: 0.70 },
+        { text: "新年快乐", pos: 0.60 },
     ];
     let autoTextIdx = 0;
+    // 【修改点2】：新增变量记录自动烟花发射次数
+    let autoFireCount = 0;
 
     function init() {
         cw = canvas.width = window.innerWidth;
@@ -41,15 +78,19 @@
         const tCtx = tCanvas.getContext('2d');
         tCanvas.width = cw; tCanvas.height = ch;
         tCtx.fillStyle = "white";
-        const fontSize = text.length > 3 ? cw * 0.18 : cw * 0.26;
+        //稍微调整字体大小判断逻辑
+        const fontSize = text.length > 3 ? cw * 0.15 : cw * 0.22;
         tCtx.font = `bold ${fontSize}px sans-serif`;
         tCtx.textAlign = "center";
+        tCtx.textBaseline = "middle";
         tCtx.fillText(text, cw/2, ch * yPosPercent);
         
         const data = tCtx.getImageData(0, 0, cw, ch).data;
         const pts = [];
-        for (let y = 0; y < ch; y += 6) {
-            for (let x = 0; x < cw; x += 6) {
+        // 调整采样密度，让文字更精细一点
+        const step = 5; 
+        for (let y = 0; y < ch; y += step) {
+            for (let x = 0; x < cw; x += step) {
                 if (data[((y * cw + x) * 4) + 3] > 128) pts.push({x, y});
             }
         }
@@ -59,19 +100,21 @@
     class Rocket {
         constructor(isAuto = false) {
             this.isAuto = isAuto;
-            this.x = cw / 2 + random(-120, 120);
+            this.x = cw / 2 + random(-100, 100);
             this.y = ch;
             
             if (isAuto) {
                 this.tx = cw / 2;
                 this.ty = ch * autoTextList[autoTextIdx].pos;
+                // 自动烟花上升速度稍慢，更庄重
+                this.v = random(10, 14);
             } else {
-                this.tx = random(cw * 0.15, cw * 0.85);
-                this.ty = random(ch * 0.1, ch * 0.55);
+                this.tx = random(cw * 0.1, cw * 0.9);
+                this.ty = random(ch * 0.1, ch * 0.6);
+                this.v = random(12, 17);
             }
             
             this.hue = random(0, 360);
-            this.v = random(12, 16);
             this.done = false;
         }
 
@@ -79,58 +122,57 @@
             const dx = this.tx - this.x;
             const dy = this.ty - this.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
-            if (dist < 10) {
+            
+            // 根据距离调整速度，接近目标时减速
+            const currentV = this.isAuto ? Math.min(this.v, dist * 0.08 + 2) : this.v;
+
+            if (dist < 15) {
                 this.explode();
                 this.done = true;
             } else {
-                this.x += (dx/dist) * this.v;
-                this.y += (dy/dist) * this.v;
+                this.x += (dx/dist) * currentV;
+                this.y += (dy/dist) * currentV;
             }
         }
 
         draw() {
-            ctx.fillStyle = `hsla(${this.hue}, 100%, 75%, 1)`;
-            ctx.fillRect(this.x, this.y, 2, 5);
+            ctx.fillStyle = `hsla(${this.hue}, 100%, 70%, 0.8)`;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
+            ctx.fill();
         }
 
         explode() {
             if (this.isAuto) {
                 const item = autoTextList[autoTextIdx];
                 const pts = getPixels(item.text, item.pos);
+                // 【修改点2】：文字烟花采用金/暖色调，更喜庆
+                const textHue = random(30, 50); 
+                pts.forEach(p => {
+                    particles.push(new Particle(this.x, this.y, textHue, p));
+                });
+                // 增加索引，为下一次做准备
                 autoTextIdx = (autoTextIdx + 1) % autoTextList.length;
-                pts.forEach(p => particles.push(new Particle(this.x, this.y, 45, p)));
             } else {
-                // 【手动烟花：模拟多色层次感】
+                // (手动烟花逻辑保持不变，省略部分注释)
                 const style = Math.floor(random(0, 4));
-                const count = 200; // 粒子数量翻倍
-                
-                // 为同一个烟花准备多种互补色
+                const count = 180; 
                 const baseHue = random(0, 360);
-                const secondHue = (baseHue + 40) % 360; 
-                const colors = [baseHue, secondHue, random(0, 360)];
+                const colors = [baseHue, (baseHue + 30)%360, (baseHue + 60)%360];
 
                 for(let i=0; i<count; i++) {
                     const h = colors[Math.floor(random(0, colors.length))];
-                    
-                    if (style === 0) { // 样式1：多色超长垂柳
-                        particles.push(new Particle(this.x, this.y, h, null, { 
-                            speed: random(1, 12), gravity: 0.02, friction: 0.98, decay: 0.004 
-                        }));
-                    } else if (style === 1) { // 样式2：璀璨闪烁星云
-                        particles.push(new Particle(this.x, this.y, h, null, { 
-                            speed: random(2, 15), isStrobe: true, decay: 0.005, gravity: 0.04 
-                        }));
-                    } else if (style === 2) { // 样式3：双重爆炸（内实外虚）
-                        const s = i < 80 ? random(1, 5) : random(8, 16);
-                        particles.push(new Particle(this.x, this.y, h, null, { 
-                            speed: s, friction: 0.93, decay: 0.007 
-                        }));
-                    } else { // 样式4：金粉螺旋
-                        const angle = (i / count) * Math.PI * 20; // 螺旋发散
-                        const s = random(2, 14);
-                        particles.push(new Particle(this.x, this.y, 45, null, { 
-                            speed: s, vx: Math.cos(angle)*s, vy: Math.sin(angle)*s, decay: 0.006 
-                        }));
+                    if (style === 0) { 
+                        particles.push(new Particle(this.x, this.y, h, null, { speed: random(2, 13), gravity: 0.03, friction: 0.98, decay: random(0.005, 0.01) }));
+                    } else if (style === 1) { 
+                        particles.push(new Particle(this.x, this.y, h, null, { speed: random(4, 18), isStrobe: true, decay: random(0.006, 0.015), gravity: 0.05 }));
+                    } else if (style === 2) { 
+                        const s = i < 80 ? random(2, 6) : random(10, 18);
+                        particles.push(new Particle(this.x, this.y, h, null, { speed: s, friction: 0.94, decay: random(0.008, 0.02) }));
+                    } else { 
+                        const angle = (i / count) * Math.PI * 18; 
+                        const s = random(3, 15);
+                        particles.push(new Particle(this.x, this.y, 45, null, { vx: Math.cos(angle)*s, vy: Math.sin(angle)*s, decay: random(0.005, 0.01), gravity: 0.02 }));
                     }
                 }
             }
@@ -142,10 +184,10 @@
             this.x = x; this.y = y; this.h = h;
             this.target = target;
             this.alpha = 1;
+            // 【修改点2】：新增状态，判断粒子是否已经到达文字位置并定格
+            this.isSettled = false;
             
-            // 【手动粒子消散速度调优】延长弥留时间
-            this.decay = target ? 0.0015 : (opt.decay || random(0.006, 0.012)); 
-            
+            this.decay = opt.decay || random(0.005, 0.01); 
             this.isStrobe = opt.isStrobe || false;
             this.gravity = opt.gravity || 0.05;
             this.friction = opt.friction || 0.96;
@@ -153,48 +195,72 @@
             if (opt.vx !== undefined) {
                 this.vx = opt.vx; this.vy = opt.vy;
             } else {
+                // 文字粒子的初始爆发速度大一些，为了更快散开再聚合
                 const angle = Math.random() * Math.PI * 2;
-                const speed = opt.speed || (target ? random(-1, 1) : random(2, 10));
+                const speed = this.target ? random(5, 15) : (opt.speed || random(3, 12));
                 this.vx = Math.cos(angle) * speed;
                 this.vy = Math.sin(angle) * speed;
             }
         }
 
         update() {
+            // 【修改点2】：如果已经定格，就不再更新位置和透明度
+            if (this.isSettled) return;
+
             if (this.target) {
                 const dx = this.target.x - this.x;
                 const dy = this.target.y - this.y;
-                this.vx += dx * 0.002;
-                this.vy += dy * 0.002;
-                this.vx *= 0.92; this.vy *= 0.92;
+                // 增强聚合力
+                this.vx += dx * 0.005;
+                this.vy += dy * 0.005;
+                // 增加摩擦力防止过冲
+                this.vx *= 0.90; this.vy *= 0.90;
+                
+                // 【修改点2关键逻辑】：判断是否到达目标位置
+                if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(this.vx) < 1) {
+                    this.isSettled = true; // 标记为已定格
+                    this.x = this.target.x; // 强制吸附到精确位置
+                    this.y = this.target.y;
+                }
             } else {
                 this.vy += this.gravity;
                 this.vx *= this.friction;
                 this.vy *= this.friction;
+                this.alpha -= this.decay;
             }
-            this.x += this.vx;
-            this.y += this.vy;
-            this.alpha -= this.decay;
+            
+            if (!this.isSettled) {
+                this.x += this.vx;
+                this.y += this.vy;
+            }
         }
 
         draw() {
             if (this.alpha <= 0) return;
-            // 闪烁逻辑增强：模拟真烟火的跳动感
-            if (this.isStrobe && Math.random() > 0.6) return; 
+            if (this.isStrobe && Math.random() > 0.7) return; 
 
-            // 粒子大小微调
-            const s = this.target ? 2.5 : random(1.5, 3);
-            // 增加光晕感：通过HSL的亮度随机化实现
-            const lightness = this.isStrobe ? 90 : 75;
-            ctx.fillStyle = `hsla(${this.h}, 100%, ${lightness}%, ${this.alpha})`;
-            ctx.fillRect(this.x, this.y, s, s);
+            // 文字粒子稍微小一点，更精致
+            const s = this.target ? random(1.5, 2.5) : random(1.5, 3.5);
+            const lightness = this.isStrobe ? 90 : (this.target ? 60 : 75);
+            
+            // 【修改点2】：定格后的粒子加一点闪烁效果，看起来是活的
+            let renderAlpha = this.alpha;
+            if (this.isSettled) {
+                renderAlpha = random(0.7, 1.0);
+            }
+
+            ctx.fillStyle = `hsla(${this.h}, 100%, ${lightness}%, ${renderAlpha})`;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, s/2, 0, Math.PI * 2);
+            ctx.fill();
         }
     }
 
     function loop() {
+        // 【配合背景修改】：使用极高透明度的深色背景来制造拖尾，而不是纯黑
+        // 这样可以让 CSS 的星空背景透出来
         ctx.globalCompositeOperation = 'source-over';
-        // 降低背景覆盖厚度，增加长拖尾（Trails）
-        ctx.fillStyle = 'rgba(0,0,0,0.12)'; 
+        ctx.fillStyle = 'rgba(9, 10, 20, 0.15)'; 
         ctx.fillRect(0, 0, cw, ch);
         ctx.globalCompositeOperation = 'lighter';
 
@@ -203,33 +269,78 @@
             if (r.done) rockets.splice(i, 1);
         });
 
-        particles.forEach((p, i) => {
-            p.update(); p.draw();
-            if (p.alpha <= 0) particles.splice(i, 1);
+        // 【修改点2关键渲染顺序】：
+        // 1. 先更新并绘制所有未定格的粒子（运动中的）
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.update();
+            if (!p.isSettled) {
+                p.draw();
+            }
+            // 移除普通烟花中消失的粒子
+            if (!p.target && p.alpha <= 0) particles.splice(i, 1);
+        }
+        
+        // 2. 【重点】最后绘制所有已定格的文字粒子
+        // 因为是在 fillRect 遮罩之后绘制，所以它们不会被拖尾效果抹去，实现“弥留”
+        particles.forEach(p => {
+            if (p.isSettled) {
+                p.draw();
+            }
         });
+        
         requestAnimationFrame(loop);
     }
 
     function random(min, max) { return Math.random() * (max - min) + min; }
 
-    function manualLaunch() {
-        // 每次点击发射1-2颗，增加热闹感
-        rockets.push(new Rocket(false));
-        if(Math.random() > 0.7) setTimeout(() => rockets.push(new Rocket(false)), 200);
+    function manualLaunch(e) {
+        let x, y;
+        if (e.type.startsWith('touch')) {
+            x = e.touches[0].clientX;
+            y = e.touches[0].clientY;
+        } else {
+            x = e.clientX;
+            y = e.clientY;
+        }
+        
+        // 点击哪里，烟花就往哪里飞（稍微增加一点交互感）
+        const r = new Rocket(false);
+        r.tx = x + random(-50, 50);
+        r.ty = y + random(-100, -200); // 往点击上方飞
+        rockets.push(r);
+        
+        // 偶尔多发射一个
+        if(Math.random() > 0.6) {
+            setTimeout(() => {
+                const r2 = new Rocket(false);
+                r2.tx = x + random(-80, 80);
+                r2.ty = y + random(-100, -250);
+                rockets.push(r2);
+            }, 150);
+        }
     }
 
-    window.addEventListener('touchstart', e => { e.preventDefault(); manualLaunch(); }, { passive: false });
+    // 【修改点2】：新的自动发射逻辑，不再无限循环
+    function scheduleAutoFireworks() {
+        if (autoFireCount < autoTextList.length) {
+            rockets.push(new Rocket(true));
+            autoFireCount++;
+            // 间隔3.5秒发射下一个
+            setTimeout(scheduleAutoFireworks, 3500);
+        }
+    }
+
+    window.addEventListener('touchstart', manualLaunch, { passive: false });
     window.addEventListener('mousedown', manualLaunch);
     window.addEventListener('resize', init);
 
     init();
     loop();
 
-    setInterval(() => {
-        rockets.push(new Rocket(true));
-    }, 3800); 
-    
-    setTimeout(() => rockets.push(new Rocket(true)), 1000);
+    // 页面加载 1.5 秒后开始自动流程
+    setTimeout(scheduleAutoFireworks, 1500);
+
     </script>
 </body>
 </html>
